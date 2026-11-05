@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import logging
 import os
 from pathlib import Path
@@ -40,6 +41,13 @@ ACCOUNT_KEY = "farmate_account_id"
 PROFILE_OWNER_KEY = "farmate_profile_form_owner"
 CONSENT_KEY = "farmate_ai_consent"
 MODE_KEY = "farmate_mode"
+CHAT_KEY = "farmate_chat_messages"
+INITIAL_CHAT = [
+    {
+        "role": "assistant",
+        "content": "안녕하세요! 농업 지원사업 준비를 도와드릴게요. 공고 추천과 신청서 작성 중 무엇을 도와드릴까요?",
+    }
+]
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -85,6 +93,75 @@ def _clear_application_state() -> None:
         st.session_state.pop(key, None)
 
 
+def _chat_messages() -> list[dict[str, str]]:
+    messages = st.session_state.get(CHAT_KEY)
+    if not isinstance(messages, list):
+        messages = [dict(turn) for turn in INITIAL_CHAT]
+        st.session_state[CHAT_KEY] = messages
+    return messages
+
+
+def _append_chat_turn(role: str, content: str) -> None:
+    if role not in {"assistant", "user"}:
+        raise ValueError("Unsupported chat role")
+    _chat_messages().append({"role": role, "content": content})
+
+
+def _render_chat(messages: list[dict[str, str]] | None = None) -> None:
+    turns = messages if messages is not None else _chat_messages()
+    bubbles = []
+    for turn in turns:
+        role = "user" if turn.get("role") == "user" else "assistant"
+        name = "나" if role == "user" else "FARMATE"
+        content = html.escape(str(turn.get("content", ""))).replace("\n", "<br>")
+        avatar = (
+            ""
+            if role == "user"
+            else '<span class="farmate-chat-avatar" aria-hidden="true">🌱</span>'
+        )
+        bubbles.append(
+            f'<div class="farmate-chat-row {role}">{avatar}'
+            f'<div class="farmate-chat-message"><span class="farmate-chat-name">{name}</span>'
+            f'<div class="farmate-chat-bubble">{content}</div></div></div>'
+        )
+    markup = (
+        '<section class="farmate-chat-window" role="log" aria-label="FARMATE 대화 내용">'
+        + "".join(bubbles)
+        + "</section>"
+    )
+    st.markdown(markup, unsafe_allow_html=True)
+
+
+def _navigate_from_chat(mode: str, choice: str, response: str) -> None:
+    _append_chat_turn("user", choice)
+    _append_chat_turn("assistant", response)
+    st.session_state[MODE_KEY] = mode
+    st.rerun()
+
+
+def _handle_chat_message(message: str) -> None:
+    normalized = message.casefold()
+    _append_chat_turn("user", message)
+    if any(word in normalized for word in ("공고", "추천")):
+        _append_chat_turn(
+            "assistant",
+            "농업e지 공개 공고를 확인하고 내 프로필과 맞는 항목을 찾아볼게요.",
+        )
+        st.session_state[MODE_KEY] = "recommendations"
+    elif any(word in normalized for word in ("신청서", "작성")):
+        _append_chat_turn(
+            "assistant",
+            "신청서 작성을 시작할게요. 공고 PDF와 HWPX 양식을 준비해 주세요.",
+        )
+        st.session_state[MODE_KEY] = "application"
+    else:
+        _append_chat_turn(
+            "assistant",
+            "아래 빠른 선택에서 공고 추천이나 신청서 작성을 골라 주세요.",
+        )
+    st.rerun()
+
+
 def _configured_secret(name: str) -> str | None:
     value = os.environ.get(name)
     if value:
@@ -119,17 +196,72 @@ def _profile_store() -> ProfileStore | None:
 
 
 st.set_page_config(page_title="FARMATE", page_icon="🌱", layout="wide")
+st.markdown(
+    """
+    <style>
+    .farmate-chat-window {
+        box-sizing: border-box;
+        height: min(390px, 52vh);
+        min-height: 250px;
+        overflow-y: auto;
+        padding: 1rem;
+        border: 1px solid rgba(120, 140, 160, .22);
+        border-radius: 1rem;
+        background: #f3f6f9;
+        display: flex;
+        flex-direction: column;
+        gap: .85rem;
+        scroll-behavior: smooth;
+    }
+    .farmate-chat-row { display: flex; align-items: flex-end; gap: .55rem; width: 100%; }
+    .farmate-chat-row.user { justify-content: flex-end; }
+    .farmate-chat-row.assistant { justify-content: flex-start; }
+    .farmate-chat-avatar {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 2rem; height: 2rem; flex: 0 0 2rem; border-radius: 50%;
+        background: #dce9f4; font-size: 1rem;
+    }
+    .farmate-chat-message { display: flex; flex-direction: column; max-width: min(78%, 44rem); }
+    .farmate-chat-row.user .farmate-chat-message { align-items: flex-end; }
+    .farmate-chat-name { margin: 0 .45rem .22rem; color: #536273; font-size: .72rem; }
+    .farmate-chat-bubble {
+        padding: .68rem .9rem; border: 1px solid rgba(100, 120, 140, .15);
+        border-radius: 1rem 1rem 1rem .25rem; background: #fff; color: #1d2733;
+        line-height: 1.55; overflow-wrap: anywhere; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    .farmate-chat-row.user .farmate-chat-bubble {
+        border-color: #cee9df; border-radius: 1rem 1rem .25rem 1rem;
+        background: #dff3ea;
+    }
+    div[data-testid="stButton"] > button {
+        min-height: 2.6rem;
+        border-radius: .75rem;
+        font-weight: 600;
+    }
+    div[data-testid="stChatInput"] textarea {
+        border-radius: .9rem;
+        font-size: 1rem;
+    }
+    @media (max-width: 640px) {
+        .farmate-chat-window { height: 48vh; min-height: 220px; padding: .7rem; }
+        .farmate-chat-message { max-width: 88%; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 st.title("🌱 FARMATE")
 st.caption("농업e지 공고 추천부터 질문 답변, HWPX 신청서 초안까지 함께하는 농업 행정 도우미")
 st.warning(
     "AI 결과는 공식 자격 판정이 아닙니다. 자격·인용·작성 내용을 원문과 대조하고 제출 전 담당자가 검토해야 합니다."
 )
-st.info(
-    "프로필에 저장된 개인정보와 계좌정보는 암호화해 앱 저장소에 보관하며 Copilot으로 보내지 않습니다. "
-    "분석 동의 후 공고 PDF, 직접 입력한 자격 검토 정보, 신청서 양식의 추출 텍스트와 대화 내용은 "
-    "GitHub Copilot 서비스로 전송됩니다. 이미 개인정보가 채워진 양식은 해당 내용도 전송될 수 있으니 "
-    "빈 양식을 사용하고 대화에 민감정보를 입력하지 마세요."
-)
+with st.expander("개인정보 및 AI 전송 안내"):
+    st.info(
+        "프로필에 저장된 개인정보와 계좌정보는 암호화해 앱 저장소에 보관하며 Copilot으로 보내지 않습니다. "
+        "분석 동의 후 공고 PDF, 직접 입력한 자격 검토 정보, 신청서 양식의 추출 텍스트와 대화 내용은 "
+        "GitHub Copilot 서비스로 전송됩니다. 이미 개인정보가 채워진 양식은 해당 내용도 전송될 수 있으니 "
+        "빈 양식을 사용하고 대화에 민감정보를 입력하지 마세요."
+    )
 
 profile_store = _profile_store()
 if profile_store is None:
@@ -234,6 +366,7 @@ if header_right.button("로그아웃", key="farmate_logout"):
     st.session_state.pop(ACCOUNT_KEY, None)
     st.session_state.pop(CONSENT_KEY, None)
     st.session_state[MODE_KEY] = "home"
+    st.session_state.pop(CHAT_KEY, None)
     for key in (
         "farmate_login_email",
         "farmate_login_password",
@@ -251,32 +384,39 @@ if header_right.button("로그아웃", key="farmate_logout"):
 
 mode = st.session_state.setdefault(MODE_KEY, "home")
 if mode == "home":
-    with st.chat_message("assistant", avatar="🌱"):
-        st.markdown(
-            "안녕하세요! 농업 지원사업 준비를 도와드릴게요. "
-            "먼저 어떤 작업을 할까요?"
-        )
+    st.subheader("FARMATE 대화")
+    _render_chat()
     choice_left, choice_right = st.columns(2)
     if choice_left.button(
-        "공고 추천 확인",
+        "공고 추천",
         type="primary",
         use_container_width=True,
         key="farmate_choose_recommendations",
     ):
-        st.session_state[MODE_KEY] = "recommendations"
-        st.rerun()
+        _navigate_from_chat(
+            "recommendations",
+            "공고 추천",
+            "농업e지 공개 공고를 확인하고 내 프로필과 맞는 항목을 찾아볼게요.",
+        )
     if choice_right.button(
-        "신청서 작성하기",
+        "신청서 작성",
         use_container_width=True,
         key="farmate_choose_application",
     ):
-        st.session_state[MODE_KEY] = "application"
-        st.rerun()
+        _navigate_from_chat(
+            "application",
+            "신청서 작성",
+            "신청서 작성을 시작할게요. 공고 PDF와 HWPX 양식을 준비해 주세요.",
+        )
+    if user_message := st.chat_input(
+        "메시지를 입력하거나 아래 빠른 선택을 눌러 주세요",
+        key="farmate_home_chat_input",
+    ):
+        _handle_chat_message(user_message)
 elif mode == "application":
     if st.button("← 작업 선택으로 돌아가기", key="farmate_back_from_application"):
-        st.session_state[MODE_KEY] = "home"
         _clear_application_state()
-        st.rerun()
+        _navigate_from_chat("home", "처음으로", "무엇을 도와드릴까요?")
 
 with st.expander("내 프로필 / 신청서 기본 정보", expanded=False):
     st.caption(
@@ -308,31 +448,40 @@ with st.expander("내 프로필 / 신청서 기본 정보", expanded=False):
             st.success("프로필을 암호화해 저장했습니다.")
             st.rerun()
 
+if mode == "application":
+    st.subheader("FARMATE 대화")
+    _render_chat([*_chat_messages(), *st.session_state.get(HISTORY_KEY, [])])
+
 if mode == "home":
     st.stop()
 
 if mode == "recommendations":
-    with st.chat_message("user"):
-        st.markdown("농업e지에서 지원사업 공고를 추천해 주세요.")
-    with st.chat_message("assistant", avatar="🌱"):
-        st.markdown(
-            "농업e지의 공개 사업목록에서 최신 항목 일부를 가져와 프로필의 "
-            "작물·영농형태·인증·지역 키워드와 대조합니다. "
-            "프로필은 이 서버 안에서만 비교하며 외부 사이트에 전송하지 않습니다."
-        )
+    st.subheader("FARMATE 대화")
+    _render_chat()
+    st.caption(
+        "프로필은 이 서버 안에서만 공고 키워드와 대조합니다. 자격 판정은 원문으로 확인하세요."
+    )
 
     refresh_col, application_col, home_col = st.columns([1, 1, 1])
     if refresh_col.button("공고 새로고침", key="farmate_refresh_notices"):
         _cached_public_notices.clear()
         st.rerun()
     if application_col.button(
-        "신청서 작성으로 이동", key="farmate_recommend_to_application"
+        "신청서 작성", key="farmate_recommend_to_application"
     ):
-        st.session_state[MODE_KEY] = "application"
-        st.rerun()
-    if home_col.button("작업 다시 선택", key="farmate_back_from_recommendations"):
-        st.session_state[MODE_KEY] = "home"
-        st.rerun()
+        _navigate_from_chat(
+            "application",
+            "신청서 작성",
+            "신청서 작성을 시작할게요. 공고 PDF와 HWPX 양식을 준비해 주세요.",
+        )
+    if home_col.button("처음으로", key="farmate_back_from_recommendations"):
+        _navigate_from_chat("home", "처음으로", "무엇을 도와드릴까요?")
+
+    if user_message := st.chat_input(
+        "신청서 작성으로 이동하려면 메시지를 입력하세요",
+        key="farmate_notice_chat_input",
+    ):
+        _handle_chat_message(user_message)
 
     try:
         with st.spinner("농업e지 공개 공고 목록을 확인하고 있습니다..."):
@@ -537,11 +686,12 @@ if (
         st.write("공고에서 제출 서류를 추출하지 못했습니다.")
 
     st.subheader("신청서 작성 대화")
-    for turn in history:
-        with st.chat_message(turn["role"]):
-            st.markdown(turn["content"])
+    _render_chat(history)
 
-    chat_answer = st.chat_input("확인 질문에 답하거나 신청서에 추가할 정보를 입력하세요")
+    chat_answer = st.chat_input(
+        "확인 질문에 답변을 입력하고 Enter를 누르세요",
+        key="farmate_application_chat_input",
+    )
     if chat_answer:
         updated_history = [*history, {"role": "user", "content": chat_answer}]
         with st.spinner("답변을 반영해 자격, 누락 질문과 신청서 초안을 갱신하고 있습니다..."):

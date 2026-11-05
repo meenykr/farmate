@@ -46,7 +46,7 @@ class ProfileAppTests(unittest.TestCase):
         next(button for button in app.button if button.label == "계정 만들기").click().run()
         self.assertEqual(len(app.exception), 0)
 
-        next(button for button in app.button if button.label == "신청서 작성하기").click().run()
+        next(button for button in app.button if button.label == "신청서 작성").click().run()
         self.assertEqual(len(app.exception), 0)
         app.text_input(key="farmate_profile_form_full_name").set_value("홍길동")
         app.text_input(key="farmate_profile_form_account_number").set_value("123456789012")
@@ -98,19 +98,31 @@ class ProfileAppTests(unittest.TestCase):
         with patch("farmate.notices.fetch_notices", return_value=[sample_notice]):
             app.run()
             self.assertEqual(len(app.exception), 0)
-            self.assertIn("공고 추천 확인", [button.label for button in app.button])
-            self.assertIn("신청서 작성하기", [button.label for button in app.button])
+            self.assertIn("공고 추천", [button.label for button in app.button])
+            self.assertIn("신청서 작성", [button.label for button in app.button])
+            self.assertEqual(len(app.chat_input), 1)
+            self.assertTrue(
+                any("farmate-chat-window" in item.value for item in app.markdown)
+            )
 
-            next(button for button in app.button if button.label == "공고 추천 확인").click().run()
+            next(button for button in app.button if button.label == "공고 추천").click().run()
             self.assertEqual(len(app.exception), 0)
+            chat = app.session_state["farmate_chat_messages"]
+            self.assertEqual(chat[-2]["role"], "user")
+            self.assertEqual(chat[-2]["content"], "공고 추천")
+            self.assertEqual(chat[-1]["role"], "assistant")
             self.assertIn(sample_notice.title, [item.value for item in app.subheader])
             self.assertTrue(
                 any("프로필 키워드 일치" in item.value for item in app.caption)
             )
 
-            next(button for button in app.button if button.label == "작업 다시 선택").click().run()
-            next(button for button in app.button if button.label == "신청서 작성하기").click().run()
+            next(button for button in app.button if button.label == "처음으로").click().run()
+            next(button for button in app.button if button.label == "신청서 작성").click().run()
             self.assertEqual(len(app.exception), 0)
+            chat = app.session_state["farmate_chat_messages"]
+            self.assertEqual(chat[-2]["role"], "user")
+            self.assertEqual(chat[-2]["content"], "신청서 작성")
+            self.assertEqual(chat[-1]["role"], "assistant")
             self.assertTrue(any("지원사업 공고 PDF" in item.label for item in app.file_uploader))
 
 
