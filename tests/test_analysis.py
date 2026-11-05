@@ -194,7 +194,7 @@ class AnalyzeAnnouncementTests(unittest.IsolatedAsyncioTestCase):
             )
         ]
         first = await analyze_announcement(
-            agent, pages, "경북 청도군 거주", application_template="성명\n만 나이"
+            agent, pages, "경북 청도군 거주", "성명\n만 나이"
         )
         history = [
             {"role": "assistant", "content": "현재 만 나이는 몇 세인가요?"},
@@ -204,13 +204,14 @@ class AnalyzeAnnouncementTests(unittest.IsolatedAsyncioTestCase):
             agent,
             pages,
             "경북 청도군 거주",
-            application_template="성명\n만 나이",
+            "성명\n만 나이",
             conversation_history=history,
         )
 
         self.assertEqual(first.eligibility[0].status.value, "확인 필요")
         self.assertEqual(second.eligibility[0].status.value, "충족")
         self.assertEqual(second.template_fields["성명"], "홍길동")
+        self.assertIn("성명\n만 나이", agent.prompts[0])
         self.assertIn("만 32세입니다.", agent.prompts[1])
         self.assertIn("<application_template_fields", agent.prompts[1])
 

@@ -106,8 +106,8 @@ async def analyze_announcement(
     agent: Agent,
     pages: list[PdfPage],
     applicant_information: str,
-    *,
     application_template: str = "",
+    *,
     conversation_history: list[dict[str, str]] | None = None,
 ) -> AnalysisResult:
     if not applicant_information.strip():

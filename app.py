@@ -37,7 +37,7 @@ async def run_analysis(
             agent,
             pages,
             applicant_information,
-            application_template=application_template,
+            application_template,
             conversation_history=conversation_history,
         )
 
