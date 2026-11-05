@@ -4,12 +4,12 @@
 
 ## MVP 흐름
 
-1. 검색 가능한 텍스트가 있는 지원사업 공고 PDF를 업로드합니다.
+1. 텍스트 PDF 또는 스캔 이미지 PDF를 업로드합니다. 텍스트가 없는 페이지는 로컬 OCR로 인식합니다.
 2. 농가 정보를 입력하고, 원문 및 신청자 정보가 GitHub Copilot으로 처리된다는 점에 동의합니다.
 3. PDF 페이지 텍스트와 입력 정보를 Microsoft Agent Framework의 `GitHubCopilotAgent`에 전달합니다. 이 공급자는 GitHub Copilot SDK를 사용합니다.
 4. 지원 대상, 자격 조건별 잠정 판정과 원문 인용, 미확인 질문, 제출서류 확인 목록, 신청서 초안을 확인합니다.
 
-PDF OCR, 전국 공고 검색, HWP/HWPX 자동 입력 및 실제 제출은 포함하지 않습니다. 원문 인용이 페이지 내용과 일치하지 않으면 결과를 표시하지 않습니다. 파일은 앱에 저장하지 않지만, 동의 후 PDF 텍스트와 신청자 입력은 AI 처리를 위해 GitHub Copilot 서비스로 전송됩니다. 민감한 식별정보는 입력하지 마세요.
+전국 공고 검색, HWP/HWPX 자동 입력 및 실제 제출은 포함하지 않습니다. 원문 인용이 페이지 내용과 일치하지 않으면 결과를 표시하지 않습니다. OCR은 로컬 Tesseract 및 한국어/영어 언어 데이터를 사용하며, OCR된 텍스트도 분석 동의 후 GitHub Copilot 서비스로 전송됩니다. 파일은 앱에 저장하지 않습니다. 민감한 식별정보는 입력하지 마세요.
 
 ## 로컬 / Codespaces 실행
 
@@ -25,6 +25,15 @@ python -m streamlit run app.py --server.address=0.0.0.0 --server.port=8501
 Codespaces는 `.devcontainer/devcontainer.json`에서 Python 3.12와 requirements 설치를 자동으로 구성합니다. 해당 명령을 실행한 뒤 Codespaces의 **Ports** 탭에서 포트 `8501`을 열어 브라우저에서 확인하세요. 로컬 환경은 `http://localhost:8501`에서 열립니다.
 
 GitHub Copilot CLI/SDK 런타임과 사용할 Copilot 구독 인증도 필요합니다. 로컬에서는 Copilot CLI에 로그인하거나 `COPILOT_GITHUB_TOKEN`을 환경변수로 설정하세요. Codespaces에서는 리포지토리/개발환경 비밀에 토큰을 설정할 수 있습니다. `GITHUB_COPILOT_MODEL`은 선택사항입니다.
+
+스캔 PDF OCR에는 시스템 Tesseract와 `kor`/`eng` 언어 데이터가 필요합니다. Codespaces 컨테이너는 `.devcontainer/Dockerfile`에서 설치합니다. Dockerfile 변경 후 컨테이너를 재빌드하세요. Ubuntu/Debian 로컬 환경은 아래 패키지를 설치한 뒤 Python 의존성을 설치합니다.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng
+```
+
+Windows에서는 Tesseract OCR을 별도로 설치하고 `tesseract.exe`를 `PATH`에서 실행할 수 있도록 설정해야 합니다. 언어 데이터나 실행 파일을 찾을 수 없거나 페이지를 판독하지 못하면 오류를 표시합니다. OCR 출력은 PDF 품질과 언어 설정에 따라 틀릴 수 있으므로 원문을 확인하세요.
 
 단위 테스트:
 
