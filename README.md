@@ -5,12 +5,12 @@
 ## MVP 흐름
 
 1. 텍스트 또는 스캔 공고 PDF와 HWPX 신청서 양식을 업로드합니다. 스캔 페이지는 로컬 OCR로 읽습니다.
-2. 농가 기본 정보를 입력하고 공고·신청자 정보·양식 텍스트·대화를 GitHub Copilot으로 전송하는 데 동의합니다.
+2. 이메일/비밀번호 계정에 신청서 기본 프로필을 저장합니다. 프로필은 HWPX 자동 입력에만 사용하고 Copilot으로 보내지 않습니다.
 3. Microsoft Agent Framework의 `GitHubCopilotAgent`(GitHub Copilot SDK 공급자)가 공고, 신청자 정보와 양식 항목을 분석합니다.
 4. 확인 질문에 채팅으로 답하면 매 턴 자격 검토·미확인 항목·양식 필드·신청서 초안을 갱신합니다.
 5. 확인된 값을 채우고 전체 초안을 문서 끝에 덧붙인 HWPX 파일을 다운로드합니다.
 
-전국 공고 검색, 구형 `.hwp` 편집/출력 및 실제 제출은 지원하지 않습니다. 구형 `.hwp`는 한글에서 `.hwpx`로 변환해 업로드해야 작성본을 다운로드할 수 있습니다. HWPX의 기존 내용과 첨부 파일은 보존하고, `{{항목명}}` 자리표시자와 인식된 빈 표 항목 옆 칸을 채웁니다. 인식 가능한 항목이 없으면 기존 양식을 보존하고 전체 초안을 끝에 추가합니다. 자동으로 채워지지 않은 양식 구조는 그대로 남으므로 한글에서 열어 확인하고 마무리해야 합니다. 원문 인용이 PDF 페이지와 일치하지 않으면 결과를 표시하지 않습니다. PDF OCR 텍스트, 양식과 대화 내용은 동의 후 GitHub Copilot 서비스로 전송됩니다. 업로드 파일을 서버에 저장하지 않습니다. 민감한 식별정보는 입력하지 마세요.
+전국 공고 검색, 구형 `.hwp` 편집/출력 및 실제 제출은 지원하지 않습니다. 구형 `.hwp`는 한글에서 `.hwpx`로 변환해 업로드해야 작성본을 다운로드할 수 있습니다. HWPX의 기존 내용과 첨부 파일은 보존하고, 프로필 및 AI 분석에서 확인된 값으로 `{{항목명}}` 자리표시자와 인식된 빈 표 항목 옆 칸을 채웁니다. 인식 가능한 항목이 없으면 기존 양식을 보존하고 전체 초안을 끝에 추가합니다. 자동으로 채워지지 않은 양식 구조는 그대로 남으므로 한글에서 열어 확인하고 마무리해야 합니다. 원문 인용이 PDF 페이지와 일치하지 않으면 결과를 표시하지 않습니다. PDF OCR 텍스트, 신청자가 AI 검토 입력란에 직접 적은 내용, 양식과 대화는 동의 후 GitHub Copilot 서비스로 전송됩니다. 이미 개인정보가 채워진 신청서 양식도 추출 텍스트가 전송될 수 있으므로 비어 있는 양식을 사용하세요. 저장 프로필은 전송하지 않습니다. 업로드 파일을 영구 저장하지 않습니다. 민감한 식별정보를 AI 입력란이나 대화에 직접 입력하지 마세요.
 
 ## 로컬 / Codespaces 실행
 
@@ -20,6 +20,29 @@ Python 3.12 권장 (Python 3.11 이상 필요).
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 python -m pip install -r requirements.txt
+```
+
+### 계정, 프로필 및 저장소 암호화
+
+프로필 계정에는 `FARMATE_PROFILE_ENCRYPTION_KEY`가 반드시 필요합니다. 새 Fernet 키는 아래 명령으로 생성하세요. 키는 서버 시작 때 임의 생성하지 않으며, 설정한 동일 키를 안전한 비밀 저장소에 보관하세요. 키를 잃으면 암호화된 프로필을 복구할 수 없습니다.
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Codespaces에서는 생성한 값을 Repository **Settings → Secrets and variables → Codespaces**의 `FARMATE_PROFILE_ENCRYPTION_KEY` secret으로 추가하세요. Codespaces를 재시작한 후 앱을 실행합니다. 로컬은 `.streamlit/secrets.toml`(gitignore 처리됨)에 다음처럼 저장하거나 환경변수로 설정하세요.
+
+```toml
+FARMATE_PROFILE_ENCRYPTION_KEY = "생성한-키"
+```
+
+기본 SQLite 파일은 `data/farmate_profiles.sqlite3`이며 `FARMATE_PROFILE_DB`로 경로를 바꿀 수 있습니다. `.gitignore`가 DB와 SQLite journal 파일을 제외합니다. 이메일은 계정 식별자로 평문 저장되지만 비밀번호는 사용자별 무작위 salt와 PBKDF2-HMAC-SHA256 해시로만 저장되고, 프로필 전체(계좌번호 및 식별정보 포함)는 Fernet으로 암호화됩니다. 프로필 자동 입력 값은 서버 내부에서 HWPX에 채워지며 Copilot prompt에는 넣지 않습니다. 공고·양식·AI 검토 입력란과 대화는 별도 동의 후 전송됩니다.
+
+이 SQLite 구성은 Codespaces의 소규모 데모용이며, Codespace 삭제 시 데이터가 사라질 수 있고 동시접속·백업·계정 복구·인증 시도 제한을 제공하지 않습니다. Azure Web App 파일시스템도 영구 저장소로 가정하면 안 됩니다. Azure에 공개 배포하기 전에는 영구 데이터베이스/스토리지, 비밀 회전·백업, 접근통제 및 계정 보안 검토가 필요하며 이 앱은 프로덕션 금융정보 저장용으로 인증되지 않았습니다.
+
+암호화 키와 Copilot 인증 설정 후 실행합니다.
+
+```bash
 python -m streamlit run app.py --server.address=0.0.0.0 --server.port=8501
 ```
 
@@ -60,7 +83,7 @@ python -m unittest discover -s tests -v
 
 `.github/workflows/azure-webapp.yml`은 이미 만들어진 Azure Linux Web App에 수동 배포하는 GitHub Actions 워크플로입니다. 저장소에 `AZURE_WEBAPP_NAME`, `AZURE_RESOURCE_GROUP` 변수를 설정하고, OIDC용 `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` 비밀 및 Azure 앱 등록의 federated credential/RBAC를 준비해야 합니다. 워크플로는 Azure 리소스를 만들지 않습니다.
 
-Azure 앱 설정에서 `COPILOT_GITHUB_TOKEN`을 비밀로 설정하고, Python 3.12 런타임 및 외부 런타임 다운로드가 가능한 네트워크를 확인하세요. 워크플로는 `startup.sh`를 시작 명령으로 설정하고 배포 중 requirements를 설치합니다. Copilot 인증 및 서비스 이용 권한이 배포 환경에서 유효한지 먼저 확인해야 합니다. 이 저장소에는 연결된 Azure 앱/권한이 없어 실제 Azure 배포는 수행하지 않았습니다.
+Azure 앱 설정에서 `COPILOT_GITHUB_TOKEN`과 `FARMATE_PROFILE_ENCRYPTION_KEY`를 비밀로 설정하고, SQLite 경로를 재시작 후에도 유지되는 영구 스토리지로 지정하세요. Python 3.12 런타임 및 외부 런타임 다운로드가 가능한 네트워크도 필요합니다. 워크플로는 `startup.sh`를 시작 명령으로 설정하고 배포 중 requirements를 설치합니다. Copilot 인증 및 서비스 이용 권한이 배포 환경에서 유효한지 먼저 확인해야 합니다. 이 저장소에는 연결된 Azure 앱/권한이 없어 실제 Azure 배포는 수행하지 않았습니다.
 
 ## 데모 및 한계
 

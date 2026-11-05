@@ -3,13 +3,24 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
+from pathlib import Path
 
 import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 
 from farmate.agent import create_agent
 from farmate.analysis import AnalysisError, AnalysisResult, analyze_announcement
 from farmate.diagnostics import safe_error_detail
 from farmate.pdf import PdfInputError, PdfPage, extract_pdf_pages
+from farmate.profiles import (
+    PROFILE_FIELDS,
+    AccountAlreadyExists,
+    ProfileStore,
+    ProfileStoreError,
+    profile_form_defaults,
+    profile_template_values,
+)
 from farmate.templates import (
     MAX_TEMPLATE_TEXT,
     TemplateInputError,
@@ -24,6 +35,9 @@ FINGERPRINT_KEY = "farmate_fingerprint"
 APPLICANT_KEY = "farmate_applicant"
 TEMPLATE_TEXT_KEY = "farmate_template_text"
 DRAFT_KEY = "farmate_draft_editor"
+ACCOUNT_KEY = "farmate_account_id"
+PROFILE_OWNER_KEY = "farmate_profile_form_owner"
+CONSENT_KEY = "farmate_ai_consent"
 
 
 async def run_analysis(
@@ -64,6 +78,39 @@ def _clear_application_state() -> None:
         st.session_state.pop(key, None)
 
 
+def _configured_secret(name: str) -> str | None:
+    value = os.environ.get(name)
+    if value:
+        return value
+    try:
+        return st.secrets.get(name)
+    except StreamlitSecretNotFoundError:
+        return None
+
+
+def _clear_profile_widget_state() -> None:
+    for key in list(st.session_state):
+        if key.startswith("farmate_profile_form_"):
+            st.session_state.pop(key, None)
+    st.session_state.pop(PROFILE_OWNER_KEY, None)
+
+
+def _profile_store() -> ProfileStore | None:
+    encryption_key = _configured_secret("FARMATE_PROFILE_ENCRYPTION_KEY")
+    if not encryption_key:
+        st.error(
+            "계정 프로필을 안전하게 저장하려면 `FARMATE_PROFILE_ENCRYPTION_KEY` 환경변수가 필요합니다. "
+            "README의 키 생성 절차를 따라 설정한 뒤 앱을 다시 시작하세요."
+        )
+        return None
+    database_path = os.environ.get("FARMATE_PROFILE_DB", "data/farmate_profiles.sqlite3")
+    try:
+        return ProfileStore(database_path, encryption_key)
+    except ProfileStoreError as exc:
+        st.error(f"프로필 저장소를 사용할 수 없습니다: {exc}")
+        return None
+
+
 st.set_page_config(page_title="FARMATE", page_icon="🌱", layout="wide")
 st.title("🌱 FARMATE")
 st.caption("공고 분석부터 질문 답변, HWPX 신청서 초안까지 함께 작성하는 AI 농업 행정 에이전트")
@@ -71,23 +118,177 @@ st.warning(
     "AI 결과는 공식 자격 판정이 아닙니다. 자격·인용·작성 내용을 원문과 대조하고 제출 전 담당자가 검토해야 합니다."
 )
 st.info(
-    "분석 동의 후 공고 PDF, 신청자 정보, 업로드한 신청서 양식의 추출 텍스트와 대화 내용이 "
-    "GitHub Copilot 서비스로 전송됩니다. 민감한 식별정보는 입력하지 마세요. 업로드 파일을 앱 서버에 저장하지 않습니다."
+    "프로필에 저장된 개인정보와 계좌정보는 암호화해 앱 저장소에 보관하며 Copilot으로 보내지 않습니다. "
+    "분석 동의 후 공고 PDF, 직접 입력한 자격 검토 정보, 신청서 양식의 추출 텍스트와 대화 내용은 "
+    "GitHub Copilot 서비스로 전송됩니다. 이미 개인정보가 채워진 양식은 해당 내용도 전송될 수 있으니 "
+    "빈 양식을 사용하고 대화에 민감정보를 입력하지 마세요."
 )
 
-uploaded_pdf = st.file_uploader("지원사업 공고 PDF", type=["pdf"])
+profile_store = _profile_store()
+if profile_store is None:
+    st.stop()
+
+account_id = st.session_state.get(ACCOUNT_KEY)
+account_email = None
+if account_id:
+    try:
+        account_email = profile_store.get_email(account_id)
+    except ProfileStoreError as exc:
+        st.error(str(exc))
+        st.stop()
+    if account_email is None:
+        st.session_state.pop(ACCOUNT_KEY, None)
+        _clear_profile_widget_state()
+        _clear_application_state()
+
+if not st.session_state.get(ACCOUNT_KEY):
+    st.subheader("FARMATE 계정")
+    login_tab, register_tab = st.tabs(["로그인", "회원가입"])
+    with login_tab:
+        with st.form("farmate_login"):
+            login_email = st.text_input("이메일", key="farmate_login_email")
+            login_password = st.text_input(
+                "비밀번호",
+                type="password",
+                max_chars=1_024,
+                key="farmate_login_password",
+            )
+            login_submitted = st.form_submit_button("로그인", type="primary")
+        if login_submitted:
+            try:
+                authenticated_id = profile_store.authenticate(login_email, login_password)
+            except ProfileStoreError as exc:
+                st.error(str(exc))
+            else:
+                if authenticated_id is None:
+                    st.error("이메일 또는 비밀번호를 확인하세요.")
+                else:
+                    st.session_state[ACCOUNT_KEY] = authenticated_id
+                    _clear_application_state()
+                    _clear_profile_widget_state()
+                    st.rerun()
+
+    with register_tab:
+        with st.form("farmate_register"):
+            register_email = st.text_input("이메일 주소", key="farmate_register_email")
+            register_password = st.text_input(
+                "비밀번호 (12자 이상)",
+                type="password",
+                max_chars=1_024,
+                key="farmate_register_password",
+            )
+            confirm_password = st.text_input(
+                "비밀번호 확인",
+                type="password",
+                max_chars=1_024,
+                key="farmate_register_confirm",
+            )
+            register_submitted = st.form_submit_button("계정 만들기")
+        if register_submitted:
+            if register_password != confirm_password:
+                st.error("비밀번호 확인이 일치하지 않습니다.")
+            else:
+                try:
+                    new_account_id = profile_store.register(register_email, register_password)
+                except (AccountAlreadyExists, ProfileStoreError) as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state[ACCOUNT_KEY] = new_account_id
+                    _clear_application_state()
+                    _clear_profile_widget_state()
+                    st.rerun()
+    st.stop()
+
+account_id = st.session_state[ACCOUNT_KEY]
+for key in (
+    "farmate_login_password",
+    "farmate_register_password",
+    "farmate_register_confirm",
+):
+    st.session_state.pop(key, None)
+try:
+    saved_profile = profile_store.get_profile(account_id)
+except ProfileStoreError as exc:
+    st.error(str(exc))
+    st.stop()
+if saved_profile is None:
+    st.error("계정을 찾을 수 없습니다. 로그아웃 후 다시 로그인하세요.")
+    st.stop()
+
+if st.session_state.get(PROFILE_OWNER_KEY) != account_id:
+    _clear_profile_widget_state()
+    for field_key, value in profile_form_defaults(saved_profile).items():
+        st.session_state[f"farmate_profile_form_{field_key}"] = value
+    st.session_state[PROFILE_OWNER_KEY] = account_id
+
+header_left, header_right = st.columns([4, 1])
+header_left.caption(f"로그인: {account_email}")
+if header_right.button("로그아웃", key="farmate_logout"):
+    st.session_state.pop(ACCOUNT_KEY, None)
+    st.session_state.pop(CONSENT_KEY, None)
+    for key in (
+        "farmate_login_email",
+        "farmate_login_password",
+        "farmate_register_email",
+        "farmate_register_password",
+        "farmate_register_confirm",
+        f"farmate_pdf_{account_id}",
+        f"farmate_template_{account_id}",
+        f"farmate_applicant_info_{account_id}",
+    ):
+        st.session_state.pop(key, None)
+    _clear_profile_widget_state()
+    _clear_application_state()
+    st.rerun()
+
+with st.expander("내 프로필 / 신청서 기본 정보", expanded=True):
+    st.caption(
+        "저장된 정보는 신청서 HWPX 양식 자동 입력에만 사용하며 AI로 전송하지 않습니다. "
+        "계좌·식별정보는 특히 주의해 관리하세요."
+    )
+    with st.form("farmate_profile_form"):
+        columns = st.columns(2)
+        for index, (field_key, label) in enumerate(PROFILE_FIELDS):
+            widget_key = f"farmate_profile_form_{field_key}"
+            columns[index % 2].text_input(
+                label,
+                key=widget_key,
+                type="password"
+                if field_key in {"corporate_registration_number", "account_number"}
+                else "default",
+            )
+        profile_submitted = st.form_submit_button("프로필 저장", type="primary")
+    if profile_submitted:
+        submitted_profile = {
+            field_key: st.session_state[f"farmate_profile_form_{field_key}"]
+            for field_key, _ in PROFILE_FIELDS
+        }
+        try:
+            profile_store.save_profile(account_id, submitted_profile)
+        except ProfileStoreError as exc:
+            st.error(str(exc))
+        else:
+            st.success("프로필을 암호화해 저장했습니다.")
+            st.rerun()
+
+uploaded_pdf = st.file_uploader(
+    "지원사업 공고 PDF", type=["pdf"], key=f"farmate_pdf_{account_id}"
+)
 uploaded_template = st.file_uploader(
     "작성할 신청서 양식 (편집된 결과 다운로드는 HWPX만 지원)",
     type=["hwp", "hwpx"],
     help="구형 .hwp 파일은 한글에서 .hwpx로 변환해 업로드하세요.",
+    key=f"farmate_template_{account_id}",
 )
 applicant_information = st.text_area(
-    "신청자 기본 정보",
+    "AI 자격 검토에 사용할 정보 (저장 프로필은 자동 전송되지 않음)",
     placeholder="예: 경북 청도군 거주, 만 32세, 농업경영체 등록, 복숭아 재배 3년, 청년농업인",
     height=120,
+    key=f"farmate_applicant_info_{account_id}",
 )
 consent = st.checkbox(
-    "공고 PDF, 신청자 정보, 신청서 양식과 대화 내용을 GitHub Copilot으로 전송하는 데 동의합니다."
+    "공고 PDF, 위에 직접 입력한 자격 검토 정보, 양식 텍스트와 대화 내용을 GitHub Copilot으로 전송하는 데 동의합니다.",
+    key=CONSENT_KEY,
 )
 
 pdf_bytes = uploaded_pdf.getvalue() if uploaded_pdf else None
@@ -153,6 +354,10 @@ if (
     and isinstance(result, AnalysisResult)
     and current_fingerprint == st.session_state.get(FINGERPRINT_KEY)
 ):
+    completed_template_fields = {
+        **result.template_fields,
+        **profile_template_values(saved_profile),
+    }
     st.header(result.program_name)
     st.caption("현재 분석은 참고용입니다. 확인된 정보가 늘어날 때마다 조건과 신청서 초안을 갱신합니다.")
 
@@ -244,10 +449,13 @@ if (
         height=360,
         key=DRAFT_KEY,
     )
-    if result.template_fields:
+    if completed_template_fields:
         st.subheader("양식에 채울 수 있는 항목")
         st.dataframe(
-            [{"양식 항목": label, "확인된 내용": value} for label, value in result.template_fields.items()],
+            [
+                {"양식 항목": label, "확인된 내용": value}
+                for label, value in completed_template_fields.items()
+            ],
             use_container_width=True,
             hide_index=True,
         )
@@ -259,7 +467,7 @@ if (
             completed_hwpx, filled_fields = fill_hwpx_template(
                 uploaded_template.name,
                 template_bytes or b"",
-                result.template_fields,
+                completed_template_fields,
                 st.session_state.get(DRAFT_KEY, result.application_draft),
             )
         except TemplateInputError as exc:
