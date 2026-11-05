@@ -1,0 +1,1 @@
+"""FARMATE MVP application logic."""
