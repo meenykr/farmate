@@ -125,6 +125,21 @@ class ProfileAppTests(unittest.TestCase):
             self.assertEqual(chat[-1]["role"], "assistant")
             self.assertTrue(any("지원사업 공고 PDF" in item.label for item in app.file_uploader))
 
+    def test_guest_demo_works_without_encryption_secret_or_login(self) -> None:
+        os.environ.pop("FARMATE_PROFILE_ENCRYPTION_KEY", None)
+        app_path = Path(__file__).resolve().parents[1] / "app.py"
+        app = AppTest.from_file(str(app_path), default_timeout=20).run()
+        self.assertEqual(len(app.exception), 0)
+        next(button for button in app.button if button.label == "로그인 없이 공개 데모 사용").click().run()
+        self.assertEqual(len(app.exception), 0)
+        self.assertIn("공고 추천", [button.label for button in app.button])
+        next(button for button in app.button if button.label == "신청서 작성").click().run()
+        self.assertEqual(len(app.exception), 0)
+        self.assertTrue(any("가상 데모" in item.value for item in app.info))
+        next(button for button in app.button if button.label == "답변 반영").click().run()
+        self.assertEqual(len(app.exception), 0)
+        self.assertTrue(any("가상 검토 결과" in item.value for item in app.markdown))
+
 
 if __name__ == "__main__":
     unittest.main()

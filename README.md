@@ -26,7 +26,7 @@ python -m pip install -r requirements.txt
 
 ### 계정, 프로필 및 저장소 암호화
 
-프로필 계정에는 `FARMATE_PROFILE_ENCRYPTION_KEY`가 반드시 필요합니다. 새 Fernet 키는 아래 명령으로 생성하세요. 키는 서버 시작 때 임의 생성하지 않으며, 설정한 동일 키를 안전한 비밀 저장소에 보관하세요. 키를 잃으면 암호화된 프로필을 복구할 수 없습니다.
+로그인/프로필 저장 기능을 쓸 때만 `FARMATE_PROFILE_ENCRYPTION_KEY`가 필요합니다. 공개 심사자용 게스트 데모에는 로그인, Copilot 자격증명, 프로필 키가 필요하지 않습니다. 게스트는 실시간 공개 공고 조회와 합성 예시 신청서 대화를 체험할 수 있습니다. 새 Fernet 키는 아래 명령으로 생성하세요. 키는 서버 시작 때 임의 생성하지 않으며, 설정한 동일 키를 안전한 비밀 저장소에 보관하세요. 키를 잃으면 암호화된 프로필을 복구할 수 없습니다.
 
 ```bash
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -42,7 +42,7 @@ FARMATE_PROFILE_ENCRYPTION_KEY = "생성한-키"
 
 이 SQLite 구성은 Codespaces의 소규모 데모용이며, Codespace 삭제 시 데이터가 사라질 수 있고 동시접속·백업·계정 복구·인증 시도 제한을 제공하지 않습니다. Azure Web App 파일시스템도 영구 저장소로 가정하면 안 됩니다. Azure에 공개 배포하기 전에는 영구 데이터베이스/스토리지, 비밀 회전·백업, 접근통제 및 계정 보안 검토가 필요하며 이 앱은 프로덕션 금융정보 저장용으로 인증되지 않았습니다.
 
-암호화 키와 Copilot 인증 설정 후 실행합니다.
+공개 게스트 데모는 별도 비밀 설정 없이 실행됩니다. 계정/실제 Copilot 신청서 분석을 사용할 경우 암호화 키와 Copilot 인증 설정이 필요합니다.
 
 ```bash
 python -m streamlit run app.py --server.address=0.0.0.0 --server.port=8501
@@ -95,9 +95,11 @@ python -c "import urllib.request; print(urllib.request.urlopen('https://www.nong
 
 ## 배포
 
-`.github/workflows/azure-webapp.yml`은 이미 만들어진 Azure Linux Web App에 수동 배포하는 GitHub Actions 워크플로입니다. 저장소에 `AZURE_WEBAPP_NAME`, `AZURE_RESOURCE_GROUP` 변수를 설정하고, OIDC용 `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` 비밀 및 Azure 앱 등록의 federated credential/RBAC를 준비해야 합니다. 워크플로는 Azure 리소스를 만들지 않습니다.
+`.github/workflows/azure-webapp.yml`은 이미 만들어진 Azure Linux Web App에 수동 배포하는 GitHub Actions 워크플로입니다. 저장소에 `AZURE_WEBAPP_NAME`, `AZURE_RESOURCE_GROUP` 변수를 설정하고, OIDC용 `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` 비밀 및 Azure 앱 등록의 federated credential/RBAC를 준비해야 합니다. 워크플로는 Azure 리소스를 만들지 않습니다. 현재 저장소에 설정된 Azure 대상 앱/인증정보는 확인할 수 없어 실제 배포는 완료되지 않았습니다. 심사 제출 전 기존 앱과 OIDC 권한을 연결하고 워크플로를 실행한 다음 `*.azurewebsites.net` 기본 도메인에서 게스트 경로를 확인해야 합니다.
 
-Azure 앱 설정에서 `COPILOT_GITHUB_TOKEN`과 `FARMATE_PROFILE_ENCRYPTION_KEY`를 비밀로 설정하고, SQLite 경로를 재시작 후에도 유지되는 영구 스토리지로 지정하세요. Python 3.12 런타임 및 외부 런타임 다운로드가 가능한 네트워크도 필요합니다. 워크플로는 `startup.sh`를 시작 명령으로 설정하고 배포 중 requirements를 설치합니다. Copilot 인증 및 서비스 이용 권한이 배포 환경에서 유효한지 먼저 확인해야 합니다. 이 저장소에는 연결된 Azure 앱/권한이 없어 실제 Azure 배포는 수행하지 않았습니다.
+게스트 경로에는 Copilot 또는 계정 암호화 비밀이 필요하지 않습니다. 실제 AI 계정 기능을 공개할 때만 Azure 앱 설정에 `COPILOT_GITHUB_TOKEN`과 `FARMATE_PROFILE_ENCRYPTION_KEY`를 안전하게 설정하고, SQLite 경로를 재시작 후에도 유지되는 영구 스토리지로 지정하세요. Python 3.12 런타임 및 외부 런타임 다운로드가 가능한 네트워크도 필요합니다. 워크플로는 `startup.sh`를 시작 명령으로 설정하고 배포 중 requirements를 설치합니다.
+
+공개 데모: 로그인 없이 **로그인 없이 공개 데모 사용** → **공고 추천**으로 농업e지 실시간 공고를 확인하거나 **신청서 작성**으로 명시적으로 가상 표기된 합성 Q&A/결과/초안을 볼 수 있습니다. 데모 입력은 로컬 세션 내에서만 처리되고 Copilot으로 전송되지 않습니다.
 
 ## 데모 및 한계
 

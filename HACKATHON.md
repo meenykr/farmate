@@ -20,7 +20,15 @@
 
 ## 재현 가능한 데모
 
-### 준비
+### 공개 심사자 체험 (로그인/자격증명 불필요)
+
+새 방문자는 **로그인 없이 공개 데모 사용**을 누릅니다. 이후:
+
+1. **공고 추천**으로 농업e지 공개 목록의 실제 공고를 확인합니다. 네트워크 오류 시 화면에 원인을 표시하고 공고를 만들어내지 않습니다.
+2. **신청서 작성**으로 가상이라고 표시된 합성 사업·신청자·조건을 확인하고 질문에 답한 뒤 예시 결과와 초안을 봅니다. 이 흐름은 로컬 데모이며 AI 분석이나 실제 지원 자격 판단이 아닙니다.
+3. 게스트는 계정 프로필이나 개인 데이터를 입력/저장할 수 없습니다.
+
+### 계정 사용자 / AI 분석 데모 준비
 
 1. Codespaces에서는 저장소의 `.devcontainer/devcontainer.json`을 사용합니다. Python 3.11 이상이 필요하며 Python 3.12를 권장합니다. 로컬 설치는 다음과 같습니다.
 
@@ -49,7 +57,7 @@ python -m streamlit run app.py --server.address=0.0.0.0 --server.port=8501
 
 로컬은 `http://localhost:8501`, Codespaces는 **Ports** 탭에서 포트 `8501`을 열어 접속합니다.
 
-1. 회원가입 또는 로그인 후 좌우 말풍선이 구분된 채팅 화면에서 **공고 추천**과 **신청서 작성** 빠른 선택을 확인합니다. 버튼 또는 메시지 입력으로 작업을 고르고 선택/안내가 대화 기록에 남는 것을 시연합니다.
+1. 공개 심사자 체험은 위 절차를 사용합니다. AI 연동 계정 데모는 회원가입 또는 로그인 후 아래 과정을 수행합니다.
 2. 공고 추천을 선택합니다. 실제 공개 사업 목록에서 프로필 키워드와 일치하는 항목이 표시되는지, 일정/접수 표시와 원문 링크가 보이는지 시연합니다. 이 비교는 공식 자격 판정이 아님을 함께 설명합니다.
 3. 저장 프로필은 앱 안에서 추천 키워드로만 사용되고 공고 사이트나 Copilot으로 전송되지 않는다는 경계를 확인합니다.
 4. **신청서 작성**을 선택하고 프로필에 성명, 농업경영체 정보, 연락처, 영농 정보, 계좌 등을 저장합니다. 프로필은 HWPX 양식 입력에 사용되며 Copilot에는 전송되지 않습니다.
@@ -118,7 +126,7 @@ Codespaces SQLite는 해당 Codespace의 워크스페이스 파일에 저장되�
 
 ## Azure 배포 상태
 
-`.github/workflows/azure-webapp.yml`은 **이미 준비된** Azure Linux Web App을 대상으로 수동 실행됩니다. 저장소 변수 `AZURE_WEBAPP_NAME`, `AZURE_RESOURCE_GROUP`, OIDC 비밀 `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, federated credential/RBAC 및 안전한 `COPILOT_GITHUB_TOKEN` 설정이 필요합니다. 프로필 사용에는 `FARMATE_PROFILE_ENCRYPTION_KEY`와 영구 SQLite 경로/스토리지가 추가로 필요합니다. 이 환경에서는 Azure 자격과 대상이 없어 배포하지 않았습니다.
+`.github/workflows/azure-webapp.yml`은 **이미 준비된** Azure Linux Web App을 대상으로 수동 실행됩니다. 저장소 변수 `AZURE_WEBAPP_NAME`, `AZURE_RESOURCE_GROUP`, OIDC 비밀 `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, federated credential/RBAC 설정이 필요합니다. 프로필 사용에는 `FARMATE_PROFILE_ENCRYPTION_KEY`와 영구 SQLite 경로/스토리지가 추가로 필요합니다. 현재 실행 환경에는 Azure CLI가 설치되어 있지 않고, Azure 로그인/대상 앱도 제공되지 않아 배포하지 않았습니다. 따라서 제출용 `*.azurewebsites.net` URL은 아직 없습니다. 공개 게스트 경로는 배포 후 별도 계정 없이 평가할 수 있습니다.
 
 ## 범위와 아직 검증되지 않은 주장
 

@@ -42,6 +42,9 @@ PROFILE_OWNER_KEY = "farmate_profile_form_owner"
 CONSENT_KEY = "farmate_ai_consent"
 MODE_KEY = "farmate_mode"
 CHAT_KEY = "farmate_chat_messages"
+GUEST_KEY = "farmate_guest_mode"
+GUEST_DEMO_KEY = "farmate_guest_demo"
+GUEST_DEMO_ANSWERS_KEY = "farmate_guest_demo_answers"
 INITIAL_CHAT = [
     {
         "role": "assistant",
@@ -182,10 +185,6 @@ def _clear_profile_widget_state() -> None:
 def _profile_store() -> ProfileStore | None:
     encryption_key = _configured_secret("FARMATE_PROFILE_ENCRYPTION_KEY")
     if not encryption_key:
-        st.error(
-            "계정 프로필을 안전하게 저장하려면 `FARMATE_PROFILE_ENCRYPTION_KEY` 환경변수가 필요합니다. "
-            "README의 키 생성 절차를 따라 설정한 뒤 앱을 다시 시작하세요."
-        )
         return None
     database_path = os.environ.get("FARMATE_PROFILE_DB", "data/farmate_profiles.sqlite3")
     try:
@@ -264,12 +263,10 @@ with st.expander("개인정보 및 AI 전송 안내"):
     )
 
 profile_store = _profile_store()
-if profile_store is None:
-    st.stop()
-
 account_id = st.session_state.get(ACCOUNT_KEY)
+is_guest = bool(st.session_state.get(GUEST_KEY))
 account_email = None
-if account_id:
+if account_id and profile_store is not None and not is_guest:
     try:
         account_email = profile_store.get_email(account_id)
     except ProfileStoreError as exc:
@@ -280,7 +277,14 @@ if account_id:
         _clear_profile_widget_state()
         _clear_application_state()
 
-if not st.session_state.get(ACCOUNT_KEY):
+if not account_id and not is_guest:
+    if st.button("로그인 없이 공개 데모 사용", type="primary", key="farmate_guest_entry"):
+        st.session_state[GUEST_KEY] = True
+        st.session_state[MODE_KEY] = "home"
+        st.rerun()
+    if profile_store is None:
+        st.info("계정·프로필 저장은 설정되어 있지 않습니다. 공개 데모를 이용할 수 있습니다.")
+        st.stop()
     st.subheader("FARMATE 계정")
     login_tab, register_tab = st.tabs(["로그인", "회원가입"])
     with login_tab:
@@ -338,33 +342,40 @@ if not st.session_state.get(ACCOUNT_KEY):
                     st.rerun()
     st.stop()
 
-account_id = st.session_state[ACCOUNT_KEY]
-for key in (
-    "farmate_login_password",
-    "farmate_register_password",
-    "farmate_register_confirm",
-):
-    st.session_state.pop(key, None)
-try:
-    saved_profile = profile_store.get_profile(account_id)
-except ProfileStoreError as exc:
-    st.error(str(exc))
-    st.stop()
-if saved_profile is None:
-    st.error("계정을 찾을 수 없습니다. 로그아웃 후 다시 로그인하세요.")
-    st.stop()
+if is_guest:
+    account_id = "guest"
+    account_email = "게스트"
+    saved_profile = profile_form_defaults()
+else:
+    account_id = st.session_state[ACCOUNT_KEY]
+    for key in ("farmate_login_password", "farmate_register_password", "farmate_register_confirm"):
+        st.session_state.pop(key, None)
+    if profile_store is None:
+        st.error("프로필 저장소를 사용할 수 없습니다.")
+        st.stop()
+    try:
+        saved_profile = profile_store.get_profile(account_id)
+    except ProfileStoreError as exc:
+        st.error(str(exc))
+        st.stop()
+    if saved_profile is None:
+        st.error("계정을 찾을 수 없습니다. 로그아웃 후 다시 로그인하세요.")
+        st.stop()
 
-if st.session_state.get(PROFILE_OWNER_KEY) != account_id:
-    _clear_profile_widget_state()
-    for field_key, value in profile_form_defaults(saved_profile).items():
-        st.session_state[f"farmate_profile_form_{field_key}"] = value
-    st.session_state[PROFILE_OWNER_KEY] = account_id
+    if st.session_state.get(PROFILE_OWNER_KEY) != account_id:
+        _clear_profile_widget_state()
+        for field_key, value in profile_form_defaults(saved_profile).items():
+            st.session_state[f"farmate_profile_form_{field_key}"] = value
+        st.session_state[PROFILE_OWNER_KEY] = account_id
 
 header_left, header_right = st.columns([4, 1])
 header_left.caption(f"로그인: {account_email}")
 if header_right.button("로그아웃", key="farmate_logout"):
     st.session_state.pop(ACCOUNT_KEY, None)
     st.session_state.pop(CONSENT_KEY, None)
+    st.session_state.pop(GUEST_KEY, None)
+    st.session_state.pop(GUEST_DEMO_KEY, None)
+    st.session_state.pop(GUEST_DEMO_ANSWERS_KEY, None)
     st.session_state[MODE_KEY] = "home"
     st.session_state.pop(CHAT_KEY, None)
     for key in (
@@ -418,39 +429,109 @@ elif mode == "application":
         _clear_application_state()
         _navigate_from_chat("home", "처음으로", "무엇을 도와드릴까요?")
 
-with st.expander("내 프로필 / 신청서 기본 정보", expanded=False):
-    st.caption(
-        "저장된 정보는 신청서 HWPX 양식 자동 입력에만 사용하며 AI로 전송하지 않습니다. "
-        "계좌·식별정보는 특히 주의해 관리하세요."
-    )
-    with st.form("farmate_profile_form"):
-        columns = st.columns(2)
-        for index, (field_key, label) in enumerate(PROFILE_FIELDS):
-            widget_key = f"farmate_profile_form_{field_key}"
-            columns[index % 2].text_input(
-                label,
-                key=widget_key,
-                type="password"
-                if field_key in {"corporate_registration_number", "account_number"}
-                else "default",
-            )
-        profile_submitted = st.form_submit_button("프로필 저장", type="primary")
-    if profile_submitted:
-        submitted_profile = {
-            field_key: st.session_state[f"farmate_profile_form_{field_key}"]
-            for field_key, _ in PROFILE_FIELDS
-        }
-        try:
-            profile_store.save_profile(account_id, submitted_profile)
-        except ProfileStoreError as exc:
-            st.error(str(exc))
-        else:
-            st.success("프로필을 암호화해 저장했습니다.")
-            st.rerun()
+if not is_guest:
+    with st.expander("내 프로필 / 신청서 기본 정보", expanded=False):
+        st.caption(
+            "저장된 정보는 신청서 HWPX 양식 자동 입력에만 사용하며 AI로 전송하지 않습니다. "
+            "계좌·식별정보는 특히 주의해 관리하세요."
+        )
+        with st.form("farmate_profile_form"):
+            columns = st.columns(2)
+            for index, (field_key, label) in enumerate(PROFILE_FIELDS):
+                widget_key = f"farmate_profile_form_{field_key}"
+                columns[index % 2].text_input(
+                    label,
+                    key=widget_key,
+                    type="password"
+                    if field_key in {"corporate_registration_number", "account_number"}
+                    else "default",
+                )
+            profile_submitted = st.form_submit_button("프로필 저장", type="primary")
+        if profile_submitted:
+            if profile_store is None:
+                st.error("프로필 저장소를 사용할 수 없습니다.")
+                st.stop()
+            submitted_profile = {
+                field_key: st.session_state[f"farmate_profile_form_{field_key}"]
+                for field_key, _ in PROFILE_FIELDS
+            }
+            try:
+                profile_store.save_profile(account_id, submitted_profile)
+            except ProfileStoreError as exc:
+                st.error(str(exc))
+            else:
+                st.success("프로필을 암호화해 저장했습니다.")
+                st.rerun()
 
 if mode == "application":
     st.subheader("FARMATE 대화")
     _render_chat([*_chat_messages(), *st.session_state.get(HISTORY_KEY, [])])
+
+if mode == "application" and is_guest:
+    st.info(
+        "**공개 심사자용 가상 데모** · 아래 사업/신청자/자격 내용은 모두 합성 예시이며 "
+        "실제 공고나 공식 판정이 아닙니다. 입력은 이 브라우저 세션에서만 사용하며 AI 서비스로 보내지 않습니다."
+    )
+    st.markdown("### 예시 사업: 청년 농업인 스마트 관개 지원 (가상)")
+    st.markdown(
+        "- 지원 대상: 농업경영체 등록이 확인된 청년 농업인 (가상 조건)\n"
+        "- 예시 제출서류: 농업경영체 등록 확인서, 사업 계획서\n"
+        "- 예시 신청자: 가상 신청인 · 복숭아 재배 · 경북 청도군"
+    )
+    st.dataframe(
+        [
+            {"예시 서류": "농업경영체 등록 확인서", "체크": "확인 필요"},
+            {"예시 서류": "사업 계획서", "체크": "확인 필요"},
+        ],
+        hide_index=True,
+        use_container_width=True,
+    )
+    demo_answers = st.session_state.setdefault(GUEST_DEMO_ANSWERS_KEY, {})
+    st.markdown("**챗봇 질문:** 농업경영체 등록이 되어 있나요?")
+    if "registered" not in demo_answers:
+        demo_answer = st.radio(
+            "가상 신청자 답변",
+            ["예 — 등록되어 있습니다", "아니요", "아직 확인하지 않았습니다"],
+            key="farmate_guest_demo_registration_answer",
+            horizontal=True,
+        )
+        if st.button("답변 반영", key="farmate_guest_demo_submit"):
+            demo_answers["registered"] = demo_answer
+            _append_chat_turn("user", demo_answer)
+            _append_chat_turn(
+                "assistant",
+                "답변을 가상 검토에 반영했습니다. 아래 결과와 초안은 설명용 예시입니다.",
+            )
+            st.rerun()
+    else:
+        st.caption(f"답변: {demo_answers['registered']}")
+        st.markdown("### 가상 검토 결과")
+        status = "충족 (가상 답변)" if demo_answers["registered"].startswith("예") else "확인 필요"
+        st.dataframe(
+            [
+                {"조건": "농업경영체 등록", "예시 상태": status, "근거": "가상 데모 데이터"},
+                {"조건": "청년 연령 요건", "예시 상태": "확인 필요", "근거": "생년 정보 없음"},
+            ],
+            hide_index=True,
+            use_container_width=True,
+        )
+        st.markdown("### 가상 초안")
+        st.text_area(
+            "제출 전 편집할 예시 신청서",
+            value=(
+                "사업명: 청년 농업인 스마트 관개 지원 (가상)\n"
+                "신청인: [추가 입력 필요]\n"
+                "영농 현황: 복숭아 재배 (예시)\n"
+                "농업경영체 등록: "
+                + demo_answers["registered"]
+                + "\n연령 요건: [담당자가 공고 원문으로 확인]"
+            ),
+            height=180,
+            key="farmate_guest_demo_draft",
+        )
+    if st.button("처음으로", key="farmate_guest_demo_home"):
+        _navigate_from_chat("home", "처음으로", "공고 추천과 신청서 작성 중 무엇을 도와드릴까요?")
+    st.stop()
 
 if mode == "home":
     st.stop()
