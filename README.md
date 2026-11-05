@@ -22,7 +22,15 @@ python -m pip install -r requirements.txt
 python -m streamlit run app.py --server.address=0.0.0.0 --server.port=8501
 ```
 
-Codespaces는 `.devcontainer/devcontainer.json`에서 Python 3.12와 requirements 설치를 자동으로 구성합니다. 해당 명령을 실행한 뒤 Codespaces의 **Ports** 탭에서 포트 `8501`을 열어 브라우저에서 확인하세요. 로컬 환경은 `http://localhost:8501`에서 열립니다.
+Codespaces는 `.devcontainer/devcontainer.json`과 Dockerfile을 사용해 Debian Bookworm/Python 3.12 환경을 빌드하고 requirements 설치와 Tesseract `kor`/`eng` 언어 데이터 설치를 자동으로 구성합니다. 브랜치 변경 후 현재 터미널이 Alpine이라고 나오면 기존 컨테이너가 설정을 적용하지 않은 상태입니다. Codespaces에서 **Codespaces: Rebuild Container**를 실행한 다음 아래 명령으로 확인하세요.
+
+```bash
+cat /etc/os-release
+command -v tesseract
+tesseract --list-langs
+```
+
+Debian, Tesseract 실행 경로, `kor`와 `eng` 언어가 표시되어야 합니다. 컨테이너 재빌드가 끝난 후 아래 Streamlit 명령을 실행하고 **Ports** 탭에서 포트 `8501`을 열어 브라우저에서 확인하세요. 로컬 환경은 `http://localhost:8501`에서 열립니다.
 
 GitHub Copilot CLI/SDK 런타임과 사용할 Copilot 구독 인증도 필요합니다. 로컬에서는 Copilot CLI에 로그인하거나 `COPILOT_GITHUB_TOKEN`을 환경변수로 설정하세요. Codespaces에서는 리포지토리/개발환경 비밀에 토큰을 설정할 수 있습니다. `GITHUB_COPILOT_MODEL`은 선택사항입니다.
 

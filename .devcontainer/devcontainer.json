@@ -1,7 +1,8 @@
 {
   "name": "FARMATE Python",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    "context": ".."
   },
   "postCreateCommand": "python -m pip install -r requirements.txt",
   "customizations": {
