@@ -31,7 +31,7 @@
    ```
 
 3. GitHub Copilot CLI/SDK 런타임에 사용할 수 있는 Copilot 구독 인증을 준비합니다. CLI에 로그인하거나 `COPILOT_GITHUB_TOKEN` 환경변수를 설정합니다. Codespaces에서는 리포지토리 또는 개발환경 비밀을 사용합니다. 이 저장소에는 토큰을 커밋하지 않습니다.
-4. 텍스트 또는 스캔 PDF를 준비합니다. MVP 제한은 PDF 20MB 이하, 최대 50페이지, 추출 텍스트 60,000자입니다. 스캔 페이지는 로컬 Tesseract로 `kor+eng` OCR합니다. Codespaces는 Debian Bookworm/Python 3.12 컨테이너를 빌드하고 `.devcontainer/Dockerfile`에서 언어 데이터를 설치합니다. 현재 터미널이 Alpine으로 표시되면 Codespaces에서 **Codespaces: Rebuild Container**를 실행한 뒤 README의 OS/Tesseract 확인 명령을 실행하세요. 로컬 Debian/Ubuntu에서는 README의 `apt-get` 명령을 실행하고, Windows에서는 Tesseract OCR과 한국어/영어 언어 데이터를 별도로 설치해 PATH를 설정해야 합니다.
+4. 텍스트 또는 스캔 PDF를 준비합니다. MVP 제한은 PDF 20MB 이하, 최대 50페이지, 추출 텍스트 60,000자입니다. 스캔 페이지는 로컬 Tesseract로 `kor+eng` OCR합니다. Codespaces는 Debian Bookworm/Python 3.12 컨테이너를 빌드하고 `.devcontainer/Dockerfile`에서 언어 데이터를 설치합니다. FARMATE와 무관한 Yarn apt 소스는 Dockerfile에서만 제외하며, Debian 패키지 서명 검증은 유지합니다. 현재 터미널이 Alpine으로 표시되면 Codespaces에서 **Codespaces: Rebuild Container**를 실행한 뒤 README의 OS/Tesseract 확인 명령을 실행하세요. 로컬 Debian/Ubuntu에서는 README의 `apt-get` 명령을 실행하고, Windows에서는 Tesseract OCR과 한국어/영어 언어 데이터를 별도로 설치해 PATH를 설정해야 합니다.
 5. 시연 공고의 접수 마감일과 신청 가능 여부를 확인합니다. 예시로 제안된 청도군 사업은 전달된 마감일이 2026-11-03이므로, 2026-11-05 기준 진행 중인 사업으로 소개하지 않습니다.
 
 ### 실행 및 시연 순서

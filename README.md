@@ -22,7 +22,7 @@ python -m pip install -r requirements.txt
 python -m streamlit run app.py --server.address=0.0.0.0 --server.port=8501
 ```
 
-Codespaces는 `.devcontainer/devcontainer.json`과 Dockerfile을 사용해 Debian Bookworm/Python 3.12 환경을 빌드하고 requirements 설치와 Tesseract `kor`/`eng` 언어 데이터 설치를 자동으로 구성합니다. 브랜치 변경 후 현재 터미널이 Alpine이라고 나오면 기존 컨테이너가 설정을 적용하지 않은 상태입니다. Codespaces에서 **Codespaces: Rebuild Container**를 실행한 다음 아래 명령으로 확인하세요.
+Codespaces는 `.devcontainer/devcontainer.json`과 Dockerfile을 사용해 Debian Bookworm/Python 3.12 환경을 빌드하고 requirements 설치와 Tesseract `kor`/`eng` 언어 데이터 설치를 자동으로 구성합니다. Dockerfile은 FARMATE에 필요 없는 Yarn 외부 apt 소스만 제거한 뒤 표준 서명 검증을 유지한 채 패키지를 설치합니다. 브랜치 변경 후 현재 터미널이 Alpine이라고 나오면 기존 컨테이너가 설정을 적용하지 않은 상태입니다. Codespaces에서 **Codespaces: Rebuild Container**를 실행한 다음 아래 명령으로 확인하세요.
 
 ```bash
 cat /etc/os-release
