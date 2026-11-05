@@ -3,11 +3,14 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 from cryptography.fernet import Fernet
 from streamlit.testing.v1 import AppTest
 
+from farmate.notices import Notice
 from farmate.profiles import ProfileStore
 
 
@@ -43,6 +46,8 @@ class ProfileAppTests(unittest.TestCase):
         next(button for button in app.button if button.label == "계정 만들기").click().run()
         self.assertEqual(len(app.exception), 0)
 
+        next(button for button in app.button if button.label == "신청서 작성하기").click().run()
+        self.assertEqual(len(app.exception), 0)
         app.text_input(key="farmate_profile_form_full_name").set_value("홍길동")
         app.text_input(key="farmate_profile_form_account_number").set_value("123456789012")
         next(button for button in app.button if button.label == "프로필 저장").click().run()
@@ -65,6 +70,48 @@ class ProfileAppTests(unittest.TestCase):
             app.text_input(key="farmate_profile_form_account_number").value,
             "123456789012",
         )
+
+    def test_chatbot_choices_recommendation_view_and_application_navigation(self) -> None:
+        store = ProfileStore(self.database_path, self.key)
+        account_id = store.register("farmer@example.com", "strong-password-123")
+        store.save_profile(
+            account_id,
+            {"crop_categories": "복숭아", "address": "경북 청도군"},
+        )
+        app_path = Path(__file__).resolve().parents[1] / "app.py"
+        app = AppTest.from_file(str(app_path), default_timeout=20)
+        app.session_state["farmate_account_id"] = account_id
+
+        sample_notice = Notice(
+            code="TEST-1",
+            title="복숭아 청년농 지원",
+            summary="경북 지역 농업인을 위한 공개 사업 안내",
+            year="2026",
+            start_date=date(2026, 11, 1),
+            end_date=date(2026, 12, 31),
+            date_confirmation_required=False,
+            date_note="",
+            office="농업기관",
+            online_application=True,
+            source_url="https://www.nongupez.go.kr/nsm/bizAply/wholeBiz/wholeBizMain",
+        )
+        with patch("farmate.notices.fetch_notices", return_value=[sample_notice]):
+            app.run()
+            self.assertEqual(len(app.exception), 0)
+            self.assertIn("공고 추천 확인", [button.label for button in app.button])
+            self.assertIn("신청서 작성하기", [button.label for button in app.button])
+
+            next(button for button in app.button if button.label == "공고 추천 확인").click().run()
+            self.assertEqual(len(app.exception), 0)
+            self.assertIn(sample_notice.title, [item.value for item in app.subheader])
+            self.assertTrue(
+                any("프로필 키워드 일치" in item.value for item in app.caption)
+            )
+
+            next(button for button in app.button if button.label == "작업 다시 선택").click().run()
+            next(button for button in app.button if button.label == "신청서 작성하기").click().run()
+            self.assertEqual(len(app.exception), 0)
+            self.assertTrue(any("지원사업 공고 PDF" in item.label for item in app.file_uploader))
 
 
 if __name__ == "__main__":

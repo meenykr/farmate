@@ -9,6 +9,7 @@ from pathlib import Path
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
+from farmate import notices as notice_service
 from farmate.agent import create_agent
 from farmate.analysis import AnalysisError, AnalysisResult, analyze_announcement
 from farmate.diagnostics import safe_error_detail
@@ -38,6 +39,12 @@ DRAFT_KEY = "farmate_draft_editor"
 ACCOUNT_KEY = "farmate_account_id"
 PROFILE_OWNER_KEY = "farmate_profile_form_owner"
 CONSENT_KEY = "farmate_ai_consent"
+MODE_KEY = "farmate_mode"
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _cached_public_notices():
+    return notice_service.fetch_notices()
 
 
 async def run_analysis(
@@ -113,7 +120,7 @@ def _profile_store() -> ProfileStore | None:
 
 st.set_page_config(page_title="FARMATE", page_icon="🌱", layout="wide")
 st.title("🌱 FARMATE")
-st.caption("공고 분석부터 질문 답변, HWPX 신청서 초안까지 함께 작성하는 AI 농업 행정 에이전트")
+st.caption("농업e지 공고 추천부터 질문 답변, HWPX 신청서 초안까지 함께하는 농업 행정 도우미")
 st.warning(
     "AI 결과는 공식 자격 판정이 아닙니다. 자격·인용·작성 내용을 원문과 대조하고 제출 전 담당자가 검토해야 합니다."
 )
@@ -226,6 +233,7 @@ header_left.caption(f"로그인: {account_email}")
 if header_right.button("로그아웃", key="farmate_logout"):
     st.session_state.pop(ACCOUNT_KEY, None)
     st.session_state.pop(CONSENT_KEY, None)
+    st.session_state[MODE_KEY] = "home"
     for key in (
         "farmate_login_email",
         "farmate_login_password",
@@ -241,7 +249,36 @@ if header_right.button("로그아웃", key="farmate_logout"):
     _clear_application_state()
     st.rerun()
 
-with st.expander("내 프로필 / 신청서 기본 정보", expanded=True):
+mode = st.session_state.setdefault(MODE_KEY, "home")
+if mode == "home":
+    with st.chat_message("assistant", avatar="🌱"):
+        st.markdown(
+            "안녕하세요! 농업 지원사업 준비를 도와드릴게요. "
+            "먼저 어떤 작업을 할까요?"
+        )
+    choice_left, choice_right = st.columns(2)
+    if choice_left.button(
+        "공고 추천 확인",
+        type="primary",
+        use_container_width=True,
+        key="farmate_choose_recommendations",
+    ):
+        st.session_state[MODE_KEY] = "recommendations"
+        st.rerun()
+    if choice_right.button(
+        "신청서 작성하기",
+        use_container_width=True,
+        key="farmate_choose_application",
+    ):
+        st.session_state[MODE_KEY] = "application"
+        st.rerun()
+elif mode == "application":
+    if st.button("← 작업 선택으로 돌아가기", key="farmate_back_from_application"):
+        st.session_state[MODE_KEY] = "home"
+        _clear_application_state()
+        st.rerun()
+
+with st.expander("내 프로필 / 신청서 기본 정보", expanded=False):
     st.caption(
         "저장된 정보는 신청서 HWPX 양식 자동 입력에만 사용하며 AI로 전송하지 않습니다. "
         "계좌·식별정보는 특히 주의해 관리하세요."
@@ -270,6 +307,103 @@ with st.expander("내 프로필 / 신청서 기본 정보", expanded=True):
         else:
             st.success("프로필을 암호화해 저장했습니다.")
             st.rerun()
+
+if mode == "home":
+    st.stop()
+
+if mode == "recommendations":
+    with st.chat_message("user"):
+        st.markdown("농업e지에서 지원사업 공고를 추천해 주세요.")
+    with st.chat_message("assistant", avatar="🌱"):
+        st.markdown(
+            "농업e지의 공개 사업목록에서 최신 항목 일부를 가져와 프로필의 "
+            "작물·영농형태·인증·지역 키워드와 대조합니다. "
+            "프로필은 이 서버 안에서만 비교하며 외부 사이트에 전송하지 않습니다."
+        )
+
+    refresh_col, application_col, home_col = st.columns([1, 1, 1])
+    if refresh_col.button("공고 새로고침", key="farmate_refresh_notices"):
+        _cached_public_notices.clear()
+        st.rerun()
+    if application_col.button(
+        "신청서 작성으로 이동", key="farmate_recommend_to_application"
+    ):
+        st.session_state[MODE_KEY] = "application"
+        st.rerun()
+    if home_col.button("작업 다시 선택", key="farmate_back_from_recommendations"):
+        st.session_state[MODE_KEY] = "home"
+        st.rerun()
+
+    try:
+        with st.spinner("농업e지 공개 공고 목록을 확인하고 있습니다..."):
+            notices = _cached_public_notices()
+    except notice_service.NoticeSourceError as exc:
+        st.warning(
+            f"{exc} 공고를 임의로 만들어 보여주지 않습니다. "
+            "농업e지에서 직접 최신 내용을 확인해 주세요."
+        )
+        st.link_button(
+            "농업e지 전체사업 목록 열기", notice_service.PUBLIC_LISTING_URL
+        )
+    else:
+        recommendations = notice_service.recommend_notices(notices, saved_profile)
+        st.caption(
+            "출처: 농업e지 공개 전체사업 목록 · 공개 결과 1페이지를 최대 15분 캐시합니다. "
+            "추천은 텍스트 유사도일 뿐 공식 자격 판정이나 접수 가능성 보장이 아닙니다."
+        )
+        if not recommendations:
+            st.info(
+                "가져온 최신 목록에서 현재 기간이 남았거나 예정된 항목을 찾지 못했습니다. "
+                "마감이 지난 사업은 추천에서 제외했습니다."
+            )
+            st.link_button(
+                "농업e지에서 전체 공고 직접 확인", notice_service.PUBLIC_LISTING_URL
+            )
+        else:
+            for item in recommendations:
+                notice = item.notice
+                with st.container(border=True):
+                    st.subheader(notice.title)
+                    st.caption(
+                        f"{notice.year or '연도 미표기'}년"
+                        + (f" · 담당기관: {notice.office}" if notice.office else "")
+                    )
+                    st.text(notice.summary[:700] or "사업 설명이 공개 목록에 없습니다.")
+                    start = notice.start_date.isoformat() if notice.start_date else "미표기"
+                    end = notice.end_date.isoformat() if notice.end_date else "미표기"
+                    st.caption(f"목록상 신청기간: {start} ~ {end}")
+                    st.caption(f"접수 일정: {item.application_status}")
+                    st.caption(
+                        "온라인 신청 가능 여부: "
+                        + (
+                            "가능으로 표시"
+                            if notice.online_application is True
+                            else "불가로 표시"
+                            if notice.online_application is False
+                            else "공개 목록에 없음"
+                        )
+                    )
+                    if item.matched_profile_fields:
+                        st.caption(
+                            "프로필 키워드 일치: "
+                            + ", ".join(item.matched_profile_fields)
+                            + " · 적격 판정을 의미하지 않습니다."
+                        )
+                    else:
+                        st.caption(
+                            "저장 프로필과 직접 일치하는 키워드는 찾지 못했습니다. "
+                            "지원 자격은 공고 원문에서 확인하세요."
+                        )
+                    st.link_button(
+                        "농업e지에서 이 사업 검색",
+                        notice.source_url,
+                        key=f"farmate_notice_source_{notice.code}",
+                    )
+            st.warning(
+                "목록의 기간은 참고용입니다. 신청 기간·대상·지역별 접수 방식은 "
+                "원문과 담당기관에서 다시 확인하세요."
+            )
+    st.stop()
 
 uploaded_pdf = st.file_uploader(
     "지원사업 공고 PDF", type=["pdf"], key=f"farmate_pdf_{account_id}"
