@@ -5,10 +5,26 @@ import unittest
 from datetime import date
 from io import BytesIO
 from unittest.mock import patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 
 from farmate import notices
+
+
+class FakeResponse(BytesIO):
+    status = 200
+
+
+class FakeOpener:
+    def __init__(self, response_body: bytes) -> None:
+        self.response_body = response_body
+        self.requests = []
+
+    def open(self, request, timeout):
+        self.requests.append((request, timeout))
+        if request.get_method() == "GET":
+            return FakeResponse(b"public listing")
+        return FakeResponse(self.response_body)
 
 
 def notice_row(
@@ -38,7 +54,8 @@ def notice_row(
 class NoticeSourceTests(unittest.TestCase):
     def test_fetch_parses_official_public_result_and_builds_search_link(self) -> None:
         body = json.dumps({"bizList": [notice_row("A-1", "청년 농업 지원")]}).encode()
-        with patch("farmate.notices.urlopen", return_value=BytesIO(body)) as open_url:
+        opener = FakeOpener(body)
+        with patch("farmate.notices.build_opener", return_value=opener):
             results = notices.fetch_notices(today=date(2026, 11, 5))
 
         self.assertEqual(len(results), 1)
@@ -49,26 +66,43 @@ class NoticeSourceTests(unittest.TestCase):
             parse_qs(urlparse(results[0].source_url).query)["bizSearch"],
             ["청년 농업 지원"],
         )
-        request = open_url.call_args.args[0]
+        self.assertEqual(len(opener.requests), 2)
+        listing_request, _ = opener.requests[0]
+        self.assertEqual(listing_request.full_url, notices.PUBLIC_LISTING_URL)
+        self.assertEqual(listing_request.get_method(), "GET")
+        request, _ = opener.requests[1]
         self.assertEqual(request.full_url, notices.PUBLIC_SEARCH_API)
+        self.assertEqual(request.get_method(), "POST")
+        self.assertIn("Mozilla/5.0", request.get_header("User-agent"))
         payload = json.loads(request.data.decode("utf-8"))
         self.assertIn("srchCnd", payload)
         self.assertIn("paging", payload)
         self.assertEqual(payload["paging"]["pageSize"], notices.MAX_RESULTS_PER_REQUEST)
 
     def test_fetch_caps_page_size_and_rejects_malformed_response(self) -> None:
-        with patch(
-            "farmate.notices.urlopen",
-            return_value=BytesIO(json.dumps({"bizList": "invalid"}).encode()),
-        ) as open_url:
+        opener = FakeOpener(json.dumps({"bizList": "invalid"}).encode())
+        with patch("farmate.notices.build_opener", return_value=opener):
             with self.assertRaises(notices.NoticeSourceError):
                 notices.fetch_notices(page_size=10_000)
-        payload = json.loads(open_url.call_args.args[0].data.decode("utf-8"))
+        payload = json.loads(opener.requests[1][0].data.decode("utf-8"))
         self.assertEqual(payload["paging"]["pageSize"], notices.MAX_RESULTS_PER_REQUEST)
 
     def test_fetch_reports_network_failure(self) -> None:
-        with patch("farmate.notices.urlopen", side_effect=URLError("offline")):
-            with self.assertRaisesRegex(notices.NoticeSourceError, "연결할 수 없습니다"):
+        opener = FakeOpener(b"")
+        opener.open = unittest.mock.Mock(side_effect=URLError("offline"))
+        with patch("farmate.notices.build_opener", return_value=opener):
+            with self.assertRaisesRegex(notices.NoticeSourceError, "네트워크 오류"):
+                notices.fetch_notices()
+
+    def test_fetch_reports_http_restriction_without_hiding_status(self) -> None:
+        opener = FakeOpener(b"")
+        opener.open = unittest.mock.Mock(
+            side_effect=HTTPError(
+                notices.PUBLIC_LISTING_URL, 403, "Forbidden", {}, None
+            )
+        )
+        with patch("farmate.notices.build_opener", return_value=opener):
+            with self.assertRaisesRegex(notices.NoticeSourceError, "HTTP 403"):
                 notices.fetch_notices()
 
     def test_recommendations_rank_profile_matches_exclude_expired_and_do_not_use_bank_data(self) -> None:

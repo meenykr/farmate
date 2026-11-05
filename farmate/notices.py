@@ -1,19 +1,26 @@
 from __future__ import annotations
 
 import html
+import http.cookiejar
 import json
 import re
+import socket
+import ssl
 from dataclasses import dataclass
 from datetime import date, datetime
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import HTTPCookieProcessor, Request, build_opener
 from typing import Any, Mapping
 
 PUBLIC_LISTING_URL = "https://www.nongupez.go.kr/nsm/bizAply/wholeBiz/wholeBizMain"
 PUBLIC_SEARCH_API = "https://www.nongupez.go.kr/nsm/bizAply/wholeBiz/retrieveListBizSrch"
 MAX_RESULTS_PER_REQUEST = 36
 MAX_RESPONSE_BYTES = 2_000_000
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
 NOTICE_PROFILE_FIELDS: tuple[tuple[str, str, int], ...] = (
     ("crop_categories", "재배 작물", 4),
     ("farm_type", "영농 형태", 3),
@@ -138,20 +145,57 @@ def fetch_notices(
             "Content-Type": "application/json; charset=utf-8",
             "Accept": "application/json",
             "Referer": PUBLIC_LISTING_URL,
-            "User-Agent": "FARMATE public announcement browser",
+            "Origin": "https://www.nongupez.go.kr",
+            "User-Agent": USER_AGENT,
         },
         method="POST",
     )
+    opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
     try:
-        with urlopen(request, timeout=timeout) as response:
+        # Open the public listing first to establish the same anonymous web
+        # session that the site's own frontend uses for its JSON search.
+        with opener.open(
+            Request(
+                PUBLIC_LISTING_URL,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "User-Agent": USER_AGENT,
+                },
+            ),
+            timeout=timeout,
+        ) as listing_response:
+            if not 200 <= getattr(listing_response, "status", 200) < 300:
+                raise NoticeSourceError(
+                    "농업e지 공개 목록 페이지가 정상 응답하지 않았습니다."
+                )
+            listing_response.read(MAX_RESPONSE_BYTES + 1)
+
+        with opener.open(request, timeout=timeout) as response:
             status = getattr(response, "status", 200)
             if not 200 <= status < 300:
                 raise NoticeSourceError(f"농업e지 공고 목록 요청이 HTTP {status}로 실패했습니다.")
             response_bytes = response.read(MAX_RESPONSE_BYTES + 1)
     except NoticeSourceError:
         raise
-    except (URLError, TimeoutError, OSError) as exc:
-        raise NoticeSourceError("농업e지 공개 공고 목록에 연결할 수 없습니다.") from exc
+    except HTTPError as exc:
+        raise NoticeSourceError(
+            f"농업e지 공개 목록 요청이 HTTP {exc.code}으로 거부되었습니다."
+        ) from exc
+    except (URLError, TimeoutError, OSError, ssl.SSLError) as exc:
+        reason = getattr(exc, "reason", exc)
+        if isinstance(reason, socket.gaierror):
+            message = "Codespace에서 농업e지 도메인을 찾지 못했습니다(DNS 오류)."
+        elif isinstance(reason, (TimeoutError, socket.timeout)):
+            message = "농업e지 연결 시간이 초과되었습니다."
+        elif isinstance(reason, ssl.SSLError):
+            message = "농업e지 HTTPS 인증서 연결에 실패했습니다(TLS 오류)."
+        else:
+            detail = str(reason).replace("\r", " ").replace("\n", " ")[:180]
+            message = (
+                "농업e지 공개 목록 연결에 실패했습니다. "
+                f"네트워크 오류: {type(reason).__name__}: {detail or '세부 원인 없음'}"
+            )
+        raise NoticeSourceError(message) from exc
 
     if len(response_bytes) > MAX_RESPONSE_BYTES:
         raise NoticeSourceError("농업e지 공고 응답이 허용 크기를 초과했습니다.")
