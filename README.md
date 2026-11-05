@@ -52,6 +52,10 @@ HWPX 표의 라벨과 모델이 반환한 항목명이 일치하고 오른쪽 �
 python -m unittest discover -s tests -v
 ```
 
+### Copilot 분석 오류
+
+화면의 `TypeError`만으로는 인증 문제라고 판단할 수 없습니다. FARMATE는 화면에 분류 가능한 SDK 인자 오류만 간단히 보여주며, 원인 확인은 `streamlit run ...`을 실행한 Codespaces 터미널의 `Traceback`에서 해야 합니다. 해당 요청의 `Traceback` 시작부터 마지막 예외 줄까지 복사하되, 토큰·인증정보와 신청자 이름/연락처/주소 등은 삭제한 뒤 공유하세요.
+
 ## 배포
 
 `.github/workflows/azure-webapp.yml`은 이미 만들어진 Azure Linux Web App에 수동 배포하는 GitHub Actions 워크플로입니다. 저장소에 `AZURE_WEBAPP_NAME`, `AZURE_RESOURCE_GROUP` 변수를 설정하고, OIDC용 `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` 비밀 및 Azure 앱 등록의 federated credential/RBAC를 준비해야 합니다. 워크플로는 Azure 리소스를 만들지 않습니다.

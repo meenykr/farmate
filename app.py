@@ -8,6 +8,7 @@ import streamlit as st
 
 from farmate.agent import create_agent
 from farmate.analysis import AnalysisError, AnalysisResult, analyze_announcement
+from farmate.diagnostics import safe_error_detail
 from farmate.pdf import PdfInputError, PdfPage, extract_pdf_pages
 from farmate.templates import (
     MAX_TEMPLATE_TEXT,
@@ -127,8 +128,8 @@ if st.button(
                 LOGGER.exception("FARMATE Copilot analysis failed")
                 st.error(
                     f"Copilot 분석에 실패했습니다 ({type(exc).__name__}). "
-                    "Copilot CLI 로그인 또는 COPILOT_GITHUB_TOKEN, 네트워크, "
-                    "GitHub Copilot 구독 권한을 확인해 주세요."
+                    f"{safe_error_detail(exc)} "
+                    "인증 오류라고 단정할 수 없습니다. Codespaces 터미널 traceback을 확인하세요."
                 )
             else:
                 first_question = (
@@ -220,7 +221,9 @@ if (
             except Exception as exc:
                 LOGGER.exception("FARMATE conversational update failed")
                 st.error(
-                    f"답변 반영에 실패했습니다 ({type(exc).__name__}). 인증과 네트워크를 확인한 뒤 다시 시도하세요."
+                    f"답변 반영에 실패했습니다 ({type(exc).__name__}). "
+                    f"{safe_error_detail(exc)} "
+                    "인증 오류라고 단정할 수 없습니다."
                 )
             else:
                 next_question = (
