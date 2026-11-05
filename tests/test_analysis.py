@@ -80,6 +80,77 @@ class AnalyzeAnnouncementTests(unittest.IsolatedAsyncioTestCase):
                 "청도군 거주",
             )
 
+    async def test_accepts_ocr_line_break_and_spacing_variations(self) -> None:
+        response = valid_result()
+        response["eligibility"] = [
+            {
+                **valid_result()["eligibility"][0],
+                "source_quote": "신 청 일기준 만18세 이상 40세 미만",
+            }
+        ]
+        response["required_documents"] = [
+            {
+                **valid_result()["required_documents"][0],
+                "source_page": 2,
+                "source_quote": "사업계획서 1부 제출",
+            }
+        ]
+        agent = StubAgent(json.dumps(response, ensure_ascii=False))
+
+        result = await analyze_announcement(
+            agent,
+            [
+                PdfPage(number=1, text="신청일 기준 만 18세 이상\n40세 미만"),
+                PdfPage(number=2, text="사업계획서 1부 제출"),
+            ],
+            "청도군 거주",
+        )
+
+        self.assertEqual(result.eligibility[0].source_page, 1)
+        self.assertIn("[PAGE 1]", agent.prompt)
+        self.assertIn("[PAGE 2]", agent.prompt)
+
+    async def test_accepts_hyphenated_line_wrap_from_pdf(self) -> None:
+        response = valid_result()
+        response["eligibility"] = [
+            {
+                **valid_result()["eligibility"][0],
+                "requirement": "Applicant must be a farmhouse resident",
+                "applicant_basis": "residence requires confirmation",
+                "source_quote": "eligible farmhouse residents",
+            }
+        ]
+        response["required_documents"] = []
+        agent = StubAgent(json.dumps(response, ensure_ascii=False))
+
+        await analyze_announcement(
+            agent,
+            [
+                PdfPage(
+                    number=1,
+                    text="eligible farm-\nhouse residents with registered farmland",
+                )
+            ],
+            "청도군 거주",
+        )
+
+    async def test_spacing_normalization_does_not_allow_unquoted_claims(self) -> None:
+        response = valid_result()
+        response["eligibility"] = [
+            {
+                **valid_result()["eligibility"][0],
+                "source_quote": "신청일 기준 100세까지 지원",
+            }
+        ]
+        agent = StubAgent(json.dumps(response, ensure_ascii=False))
+
+        with self.assertRaisesRegex(AnalysisError, "원문에서 확인"):
+            await analyze_announcement(
+                agent,
+                [PdfPage(number=1, text="신청일 기준 만 18세 이상 40세 미만")],
+                "청도군 거주",
+            )
+
     async def test_rejects_empty_applicant_information(self) -> None:
         with self.assertRaisesRegex(AnalysisError, "신청자 정보를 입력"):
             await analyze_announcement(
