@@ -159,6 +159,61 @@ class AnalyzeAnnouncementTests(unittest.IsolatedAsyncioTestCase):
                 "  ",
             )
 
+    async def test_answer_turn_updates_analysis_with_template_and_history(self) -> None:
+        initial = valid_result()
+        updated = valid_result()
+        updated["eligibility"] = [
+            {
+                **valid_result()["eligibility"][0],
+                "status": "충족",
+                "applicant_basis": "신청자가 만 32세라고 답변함",
+            }
+        ]
+        updated["follow_up_questions"] = []
+        updated["template_fields"] = {"성명": "홍길동"}
+
+        class TurnAgent:
+            def __init__(self) -> None:
+                self.prompts: list[str] = []
+                self.responses = [initial, updated]
+
+            async def run(self, prompt: str) -> object:
+                self.prompts.append(prompt)
+                response = type(
+                    "Response",
+                    (),
+                    {"text": json.dumps(self.responses.pop(0), ensure_ascii=False)},
+                )()
+                return response
+
+        agent = TurnAgent()
+        pages = [
+            PdfPage(
+                number=1,
+                text="신청일 기준 만 18세 이상 40세 미만. 사업계획서 1부 제출.",
+            )
+        ]
+        first = await analyze_announcement(
+            agent, pages, "경북 청도군 거주", application_template="성명\n만 나이"
+        )
+        history = [
+            {"role": "assistant", "content": "현재 만 나이는 몇 세인가요?"},
+            {"role": "user", "content": "만 32세입니다."},
+        ]
+        second = await analyze_announcement(
+            agent,
+            pages,
+            "경북 청도군 거주",
+            application_template="성명\n만 나이",
+            conversation_history=history,
+        )
+
+        self.assertEqual(first.eligibility[0].status.value, "확인 필요")
+        self.assertEqual(second.eligibility[0].status.value, "충족")
+        self.assertEqual(second.template_fields["성명"], "홍길동")
+        self.assertIn("만 32세입니다.", agent.prompts[1])
+        self.assertIn("<application_template_fields", agent.prompts[1])
+
 
 if __name__ == "__main__":
     unittest.main()

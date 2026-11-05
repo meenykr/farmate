@@ -3,5 +3,6 @@ pypdf>=6.0,<7
 pypdfium2>=4.30,<6
 pytesseract>=0.3.13,<1
 Pillow>=10,<14
+defusedxml>=0.7.1,<1
 streamlit>=1.40,<2
 pydantic>=2.0,<3
